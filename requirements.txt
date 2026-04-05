@@ -1,0 +1,9 @@
+# This project uses conda for environment management.
+# All dependencies are declared in environment.yml.
+#
+# Setup:
+#   conda env create -f environment.yml
+#   conda activate pie-train
+#
+# To update after changes to environment.yml:
+#   conda env update -f environment.yml --prune

@@ -1,0 +1,38 @@
+name: pie-train
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.11
+
+  # PyTorch via conda (change pytorch-cuda to match your driver)
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.1 # ← adjust: 11.8, 12.1, or 12.4
+
+  # Available on conda-forge
+  - transformers>=4.30.0
+  - accelerate>=0.20.0
+  - datasets>=2.14.0
+  - huggingface_hub>=0.20.0
+  - safetensors>=0.3.0
+  - sentencepiece>=0.1.99
+  - protobuf>=3.20.0
+  - pillow>=9.0.0
+  - tqdm>=4.65.0
+
+  # Install via pip (no conda package exists)
+  - pip
+  - pip:
+      - unsloth
+      - unsloth_zoo
+      - trl==0.24.0
+      - bitsandbytes
+      - peft
+      - torchao==0.7.0
+      - triton # Linux only; use triton-windows on Windows
+      - tyro
