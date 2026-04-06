@@ -6,27 +6,61 @@ CONDA_DIR="$HOME/miniconda3"
 ENV_NAME="pie-train"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+err() { echo "ERROR: $*" >&2; exit 1; }
+
+# ── 0. Preflight checks ─────────────────────────────────────────────────────
+if [[ "$(uname -s)" != "Linux" ]]; then
+    err "This script requires Linux. Detected OS: $(uname -s)"
+fi
+
+if ! command -v wget &>/dev/null && ! command -v curl &>/dev/null; then
+    err "Neither wget nor curl found. Install one of them first."
+fi
+
+if [ ! -f "$SCRIPT_DIR/environment.yml" ]; then
+    err "environment.yml not found in $SCRIPT_DIR. Are you running from the repo root?"
+fi
+
 # ── 1. Install Miniconda if not present ──────────────────────────────────────
 if ! command -v conda &>/dev/null && [ ! -f "$CONDA_DIR/bin/conda" ]; then
     echo "==> Installing Miniconda to $CONDA_DIR ..."
-    wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
-    bash /tmp/miniconda.sh -b -p "$CONDA_DIR"
-    rm /tmp/miniconda.sh
+    INSTALLER="/tmp/miniconda.sh"
+    if command -v wget &>/dev/null; then
+        wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O "$INSTALLER"
+    else
+        curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o "$INSTALLER"
+    fi
+    bash "$INSTALLER" -b -p "$CONDA_DIR" || err "Miniconda installation failed."
+    rm -f "$INSTALLER"
     echo "==> Miniconda installed."
 else
     echo "==> Conda already available."
 fi
 
 # Ensure conda is on PATH for this script
-eval "$("$CONDA_DIR/bin/conda" shell.bash hook)"
+if [ -f "$CONDA_DIR/bin/conda" ]; then
+    eval "$("$CONDA_DIR/bin/conda" shell.bash hook)"
+elif command -v conda &>/dev/null; then
+    eval "$(conda shell.bash hook)"
+else
+    err "Conda not found after installation. Check $CONDA_DIR/bin/conda"
+fi
 
 # ── 2. Create/update the conda environment ──────────────────────────────────
 if conda env list | grep -q "^${ENV_NAME} "; then
     echo "==> Updating existing '$ENV_NAME' environment ..."
-    conda env update -f "$SCRIPT_DIR/environment.yml" --prune
+    if ! conda env update -f "$SCRIPT_DIR/environment.yml" --prune; then
+        err "Failed to update conda environment. Check the output above for dependency conflicts."
+    fi
 else
-    echo "==> Creating '$ENV_NAME' environment ..."
-    conda env create -f "$SCRIPT_DIR/environment.yml"
+    echo "==> Creating '$ENV_NAME' environment (this may take 10-15 minutes) ..."
+    if ! conda env create -f "$SCRIPT_DIR/environment.yml"; then
+        echo ""
+        err "Failed to create conda environment. Common fixes:
+  - Install libmamba solver: conda install -n base conda-libmamba-solver && conda config --set solver libmamba
+  - Check network connectivity (model downloads require internet)
+  - Check disk space: df -h $(dirname $CONDA_DIR)"
+    fi
 fi
 
 # ── 3. Training data ────────────────────────────────────────────────────────
