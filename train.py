@@ -9,8 +9,8 @@ Prerequisites:
     conda activate pie-train
 
 Usage:
-    python train.py                        # defaults
-    python train.py --epochs 3 --lr 1e-4   # override
+    python training/train.py                        # defaults
+    python training/train.py --epochs 3 --lr 1e-4   # override
 """
 
 import argparse
@@ -18,9 +18,8 @@ import json
 import os
 from pathlib import Path
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import LoraConfig, TaskType, get_peft_model
+# ── Unsloth must be imported before transformers ──────────────────────────
+from unsloth import FastLanguageModel
 from datasets import Dataset
 from trl import SFTTrainer, SFTConfig
 
@@ -103,21 +102,16 @@ def main():
 
     # ── Load model with QLoRA ─────────────────────────────────────────────
     print(f"\nLoading {args.model} with 4-bit quantization …")
-    bnb_config = BitsAndBytesConfig(
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=args.model,
+        max_seq_length=MAX_SEQ_LENGTH,
+        dtype=None,  # auto-detect (bf16 on RTX 4080)
         load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        quantization_config=bnb_config,
-        device_map="auto",
     )
 
     # ── Attach LoRA adapters ──────────────────────────────────────────────
-    lora_config = LoraConfig(
+    model = FastLanguageModel.get_peft_model(
+        model,
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_dropout=0.05,
@@ -131,11 +125,9 @@ def main():
             "down_proj",
         ],
         bias="none",
-        task_type=TaskType.CAUSAL_LM,
+        use_gradient_checkpointing="unsloth",  # 60% less VRAM
+        random_state=args.seed,
     )
-    model.enable_input_require_grads()
-    model.gradient_checkpointing_enable()
-    model = get_peft_model(model, lora_config)
 
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
@@ -205,6 +197,18 @@ def main():
     model.save_pretrained(adapter_path)
     tokenizer.save_pretrained(adapter_path)
     print(f"\nAdapter saved to {adapter_path}")
+
+    # ── Also save merged GGUF for local inference (optional) ──────────────
+    try:
+        gguf_path = os.path.join(args.output, "gguf")
+        model.save_pretrained_gguf(
+            gguf_path,
+            tokenizer,
+            quantization_method="q4_k_m",
+        )
+        print(f"GGUF (Q4_K_M) saved to {gguf_path}")
+    except Exception as e:
+        print(f"GGUF export skipped: {e}")
 
     print("\n── Training complete ──")
 

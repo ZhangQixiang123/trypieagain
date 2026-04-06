@@ -9,12 +9,13 @@ dependencies:
   # Python
   - python=3.11
 
-  # PyTorch via conda — pin torch+torchvision together to avoid ABI mismatch
-  - pytorch=2.1.0
-  - torchvision=0.16.0
-  - pytorch-cuda=12.1 # ← adjust: 11.8, 12.1, or 12.4
+  # PyTorch via conda (change pytorch-cuda to match your driver)
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.4 # ← adjust: 12.1, 12.4, or 12.6
 
   # Available on conda-forge
+  - transformers>=4.30.0
   - accelerate>=0.20.0
   - datasets>=2.14.0
   - huggingface_hub>=0.20.0
@@ -27,9 +28,11 @@ dependencies:
   # Install via pip (no conda package exists)
   - pip
   - pip:
-      - transformers==4.46.0
+      - unsloth
+      - unsloth_zoo
       - trl==0.24.0
       - bitsandbytes
       - peft
+      - torchao==0.7.0
       - triton # Linux only; use triton-windows on Windows
       - tyro
