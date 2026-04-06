@@ -28,11 +28,8 @@ dependencies:
   # Install via pip (no conda package exists)
   - pip
   - pip:
-      - unsloth
-      - unsloth_zoo
       - trl==0.24.0
       - bitsandbytes
       - peft
-      - torchao==0.7.0
       - triton # Linux only; use triton-windows on Windows
       - tyro
