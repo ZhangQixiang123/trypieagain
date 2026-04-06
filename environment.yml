@@ -15,7 +15,6 @@ dependencies:
   - pytorch-cuda=12.1 # ← adjust: 11.8, 12.1, or 12.4
 
   # Available on conda-forge
-  - transformers>=4.30.0
   - accelerate>=0.20.0
   - datasets>=2.14.0
   - huggingface_hub>=0.20.0
@@ -28,6 +27,7 @@ dependencies:
   # Install via pip (no conda package exists)
   - pip
   - pip:
+      - transformers==4.46.0
       - trl==0.24.0
       - bitsandbytes
       - peft
