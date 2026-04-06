@@ -9,9 +9,9 @@ dependencies:
   # Python
   - python=3.11
 
-  # PyTorch via conda (change pytorch-cuda to match your driver)
-  - pytorch
-  - torchvision
+  # PyTorch via conda — pin torch+torchvision together to avoid ABI mismatch
+  - pytorch=2.1.0
+  - torchvision=0.16.0
   - pytorch-cuda=12.1 # ← adjust: 11.8, 12.1, or 12.4
 
   # Available on conda-forge
