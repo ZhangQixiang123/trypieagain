@@ -9,9 +9,7 @@ dependencies:
   # Python
   - python=3.11
 
-  # PyTorch via conda (change pytorch-cuda to match your driver)
-  - pytorch
-  - torchvision
+  # CUDA toolkit via conda (adjust version to match your driver)
   - pytorch-cuda=12.4 # ← adjust: 12.1, 12.4, or 12.6
 
   # Available on conda-forge
@@ -25,9 +23,11 @@ dependencies:
   - pillow>=9.0.0
   - tqdm>=4.65.0
 
-  # Install via pip (no conda package exists)
+  # Install via pip — torch/torchvision managed here so unsloth gets compatible versions
   - pip
   - pip:
+      - torch
+      - torchvision
       - unsloth
       - unsloth_zoo
       - trl==0.24.0
