@@ -7,6 +7,27 @@ MULTI_GPU=false
 
 err() { echo "ERROR: $*" >&2; exit 1; }
 
+# ── HuggingFace cache on local disk ─────────────────────────────────────────
+# Shared /home is often NFS — memory-mapping model shards over NFS is very
+# slow. Default to /localhome/<user>/.cache/huggingface (local SSD) if it
+# exists, but allow override via pre-existing HF_HOME env var.
+if [[ -z "${HF_HOME:-}" ]]; then
+    LOCAL_HF_CACHE="/localhome/$USER/.cache/huggingface"
+    if [[ -d "/localhome/$USER" ]] || mkdir -p "$LOCAL_HF_CACHE" 2>/dev/null; then
+        export HF_HOME="$LOCAL_HF_CACHE"
+        export HF_DATASETS_CACHE="$HF_HOME/datasets"
+        export TRANSFORMERS_CACHE="$HF_HOME/hub"
+        mkdir -p "$HF_DATASETS_CACHE" "$TRANSFORMERS_CACHE"
+        echo "HF cache: $HF_HOME (local disk)"
+    else
+        echo "WARNING: /localhome/$USER not writable — falling back to default HF cache (~/.cache/huggingface)"
+        echo "         Model loads will be slow if \$HOME is on NFS."
+    fi
+else
+    echo "HF cache: $HF_HOME (from env)"
+fi
+echo ""
+
 # Parse flags — everything before "--" is for this script, everything after is
 # forwarded to train.py
 TRAIN_ARGS=()
