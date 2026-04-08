@@ -130,6 +130,9 @@ class TacticPredictor(abc.ABC):
     @abc.abstractmethod
     def predict(self, goal: str, global_ctx: list, local_ctx: list) -> str: ...
 
+    @abc.abstractmethod
+    def predict_raw(self, user_content: str) -> str: ...
+
 
 class LocalPredictor(TacticPredictor):
     def __init__(self, adapter_path: str):
@@ -158,7 +161,9 @@ class LocalPredictor(TacticPredictor):
         self._torch = torch
 
     def predict(self, goal, global_ctx, local_ctx):
-        user_content = format_proof_state(goal, global_ctx, local_ctx)
+        return self.predict_raw(format_proof_state(goal, global_ctx, local_ctx))
+
+    def predict_raw(self, user_content: str) -> str:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -201,7 +206,9 @@ class APIPredictor(TacticPredictor):
         return models[0]["id"]
 
     def predict(self, goal, global_ctx, local_ctx):
-        user_content = format_proof_state(goal, global_ctx, local_ctx)
+        return self.predict_raw(format_proof_state(goal, global_ctx, local_ctx))
+
+    def predict_raw(self, user_content: str) -> str:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -218,6 +225,100 @@ class APIPredictor(TacticPredictor):
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
+
+
+# ── Chat-format eval (each line = one independent step) ─────────────────────
+
+def run_chat_format_eval(test_cases, predictor, args):
+    """Evaluate a JSONL where each line is a chat-format training example
+    ({"messages": [system, user, assistant]}). Each line is treated as one
+    independent step — no proof grouping, no completion metric.
+    """
+    print(f"Evaluating {len(test_cases)} independent steps (chat format)\n")
+    t0 = time.time()
+
+    total = 0
+    exact = 0
+    head = 0
+    cat = 0
+    per_tactic = defaultdict(lambda: {"total": 0, "exact": 0, "head": 0})
+    failures = []
+
+    for i, tc in enumerate(test_cases):
+        msgs = tc["messages"]
+        user_content = next(m["content"] for m in msgs if m["role"] == "user")
+        gold = next(m["content"] for m in msgs if m["role"] == "assistant").strip()
+
+        predicted = predictor.predict_raw(user_content).strip()
+
+        is_exact = predicted == gold
+        is_head = tactic_head(predicted) == tactic_head(gold)
+        is_cat = tactic_category(predicted) == tactic_category(gold)
+
+        total += 1
+        exact += is_exact
+        head += is_head
+        cat += is_cat
+
+        gold_head = tactic_head(gold)
+        per_tactic[gold_head]["total"] += 1
+        if is_exact:
+            per_tactic[gold_head]["exact"] += 1
+        if is_head:
+            per_tactic[gold_head]["head"] += 1
+
+        if not is_exact and len(failures) < 20:
+            failures.append((i, gold, predicted, user_content))
+
+        if args.verbose:
+            status = "OK" if is_exact else ("~" if is_head else "X")
+            print(f"  [{i+1}/{len(test_cases)}] [{status}] gold={gold}  pred={predicted}")
+        else:
+            status = "OK" if is_exact else ("~" if is_head else "X")
+            print(f"[{i+1}/{len(test_cases)}] [{status}] gold={gold}  pred={predicted}")
+
+    elapsed = time.time() - t0
+
+    print(f"\n{'=' * 60}")
+    print(f"  Offline Step Evaluation (chat format)")
+    print(f"{'=' * 60}")
+    print(f"\n── Step-level accuracy ──")
+    print(f"  Total steps:  {total}")
+    if total:
+        print(f"  Exact-match:  {exact}/{total} ({exact/total:.1%})")
+        print(f"  Tactic-head:  {head}/{total} ({head/total:.1%})")
+        print(f"  Category:     {cat}/{total} ({cat/total:.1%})")
+
+    print(f"\n── Per-tactic breakdown ──")
+    for tac in sorted(per_tactic, key=lambda t: per_tactic[t]["total"], reverse=True):
+        s = per_tactic[tac]
+        ex_pct = s["exact"] / s["total"] * 100 if s["total"] else 0
+        hd_pct = s["head"] / s["total"] * 100 if s["total"] else 0
+        print(f"  {tac:16s}  n={s['total']:4d}  exact={ex_pct:5.1f}%  head={hd_pct:5.1f}%")
+
+    if failures:
+        print(f"\n── Sample failures ({min(10, len(failures))}/{len(failures)}) ──")
+        for idx, g, p, _uc in failures[:10]:
+            print(f"  [{idx+1}] gold={g}")
+            print(f"       pred={p}")
+
+    print(f"\n  Time: {elapsed:.1f}s ({elapsed/max(total,1):.2f}s/step)")
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump({
+                "format": "chat",
+                "total_steps": total,
+                "exact_match_steps": exact,
+                "head_match_steps": head,
+                "category_match_steps": cat,
+                "exact_match_pct": exact / total if total else 0,
+                "head_match_pct": head / total if total else 0,
+                "category_match_pct": cat / total if total else 0,
+                "per_tactic": {k: dict(v) for k, v in per_tactic.items()},
+                "elapsed_seconds": elapsed,
+            }, f, indent=2, ensure_ascii=False)
+        print(f"\nDetailed results written to {args.output}")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -244,8 +345,16 @@ def main():
     with open(test_path, "r", encoding="utf-8") as f:
         test_cases = [json.loads(line) for line in f if line.strip()]
 
+    # Detect chat-format (training-data style: each line = {"messages": [...]})
+    # vs per-proof eval format (each line has theoremName + steps).
+    is_chat_format = bool(test_cases) and "messages" in test_cases[0]
+
     if args.max_examples > 0:
         test_cases = test_cases[:args.max_examples]
+
+    if is_chat_format:
+        run_chat_format_eval(test_cases, predictor, args)
+        return
 
     print(f"Evaluating {len(test_cases)} proofs "
           f"({sum(len(tc.get('steps', [])) for tc in test_cases)} total steps)\n")
